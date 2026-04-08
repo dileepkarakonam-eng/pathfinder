@@ -3,7 +3,6 @@ import pandas as pd
 import json
 import smtplib
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Pathfinder Pro", layout="wide")
@@ -46,7 +45,7 @@ def save_data():
 
 tasks = load_data()
 
-# --- SIDEBAR: PROFILES & TOOLS ---
+# --- SIDEBAR ---
 st.sidebar.title("Growth Engine")
 profile = st.sidebar.selectbox("Select Profile", ["Work", "Life"])
 view = st.sidebar.radio("Time Horizon", ["Daily", "Weekly", "Monthly", "Half-Yearly", "Yearly"])
@@ -63,9 +62,16 @@ if uploaded_file:
     save_data()
     st.sidebar.success("Tasks Imported!")
 
+# Global Delete Facility
+st.sidebar.markdown("---")
+if st.sidebar.button("🧹 Clear All Completed Tasks"):
+    st.session_state.tasks = [t for t in st.session_state.tasks if not t['done']]
+    save_data()
+    st.rerun()
+
 # --- MAIN INTERFACE ---
 st.title(f"{profile} Focus - {view}")
-st.info(f"Target Date for this period: **{get_smart_date(view)}**")
+st.info(f"Target Date: **{get_smart_date(view)}**")
 
 # Add New Task
 with st.expander("➕ Add New Task"):
@@ -78,26 +84,35 @@ with st.expander("➕ Add New Task"):
         save_data()
         st.rerun()
 
-# Display Tasks
-current_tasks = [t for t in st.session_state.tasks if t['profile'] == profile and t['view'] == view]
+# --- TASK DISPLAY & DELETE LOGIC ---
+# We use enumerate on the full session state to ensure we delete the correct global index
+for i, task in enumerate(st.session_state.tasks):
+    # Only show tasks for the current profile and view
+    if task['profile'] == profile and task['view'] == view:
+        col_status, col_text, col_rem, col_del = st.columns([0.1, 0.5, 0.3, 0.1])
+        
+        # 1. Status/Finish Column
+        if not task['done']:
+            if col_status.button("✓", key=f"done_{i}"):
+                # Remarks logic
+                rem = st.text_input("Remarks", key=f"input_rem_{i}")
+                task['done'] = True
+                task['remarks'] = rem
+                save_data()
+                st.rerun()
+            col_text.write(task['task'])
+        else:
+            col_status.write("✅")
+            col_text.write(f"~~{task['task']}~~")
+            col_rem.caption(f"Remarks: {task['remarks']}")
 
-for i, task in enumerate(current_tasks):
-    col1, col2, col3 = st.columns([0.1, 0.6, 0.3])
-    
-    if not task['done']:
-        if col1.button("✓", key=f"done_{i}"):
-            remarks = st.text_area("Add Remarks (Optional)", key=f"rem_{i}")
-            task['done'] = True
-            task['remarks'] = remarks
+        # 2. DELETE BUTTON
+        if col_del.button("🗑️", key=f"del_{i}", help="Delete this task"):
+            st.session_state.tasks.pop(i)
             save_data()
             st.rerun()
-        col2.write(f"**{task['task']}**")
-    else:
-        col1.write("✅")
-        col2.write(f"~~{task['task']}~~")
-        col3.caption(f"Remarks: {task['remarks']}")
 
-# --- REPORTING ---
+# --- EMAIL REPORTING ---
+st.sidebar.markdown("---")
 if st.sidebar.button("📧 Email Daily Report"):
-    # Logic for generating summary and sending via SMTP
     st.sidebar.success("Report Compiled & Sent!")

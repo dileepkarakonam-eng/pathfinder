@@ -1,11 +1,14 @@
 import streamlit as st
 import pandas as pd
 import json
-import smtplib
 from datetime import datetime, timedelta
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="Pathfinder Pro", layout="wide")
+st.set_page_config(
+    page_title="Pathfinder Pro", 
+    page_icon="🚀",
+    initial_sidebar_state="collapsed"  # Better for mobile start
+)
 
 # --- SMART DATE LOGIC ---
 def get_smart_date(view):
@@ -43,76 +46,92 @@ def save_data():
     with open("data.json", "w") as f:
         json.dump(st.session_state.tasks, f)
 
-tasks = load_data()
+load_data()
 
-# --- SIDEBAR ---
-st.sidebar.title("Growth Engine")
-profile = st.sidebar.selectbox("Select Profile", ["Work", "Life"])
-view = st.sidebar.radio("Time Horizon", ["Daily", "Weekly", "Monthly", "Half-Yearly", "Yearly"])
+# --- SIDEBAR (Mobile Nav) ---
+with st.sidebar:
+    st.title("Settings")
+    profile = st.selectbox("Profile", ["Work", "Life"])
+    view = st.radio("Horizon", ["Daily", "Weekly", "Monthly", "Half-Yearly", "Yearly"])
+    
+    st.divider()
+    
+    with st.expander("📥 Bulk Upload CSV"):
+        uploaded_file = st.file_uploader("Choose File", type="csv")
+        if uploaded_file:
+            df = pd.read_csv(uploaded_file)
+            for _, row in df.iterrows():
+                st.session_state.tasks.append({
+                    "profile": row['profile'], "view": row['view'], "task": row['task'],
+                    "done": False, "remarks": "", "date": get_smart_date(row['view'])
+                })
+            save_data()
+            st.success("Imported!")
 
-# CSV Upload
-uploaded_file = st.sidebar.file_uploader("Bulk Upload (CSV)", type="csv")
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
-    for _, row in df.iterrows():
-        st.session_state.tasks.append({
-            "profile": row['profile'], "view": row['view'], "task": row['task'],
-            "done": False, "remarks": "", "date": get_smart_date(row['view'])
-        })
-    save_data()
-    st.sidebar.success("Tasks Imported!")
-
-# Global Delete Facility
-st.sidebar.markdown("---")
-if st.sidebar.button("🧹 Clear All Completed Tasks"):
-    st.session_state.tasks = [t for t in st.session_state.tasks if not t['done']]
-    save_data()
-    st.rerun()
-
-# --- MAIN INTERFACE ---
-st.title(f"{profile} Focus - {view}")
-st.info(f"Target Date: **{get_smart_date(view)}**")
-
-# Add New Task
-with st.expander("➕ Add New Task"):
-    new_task = st.text_input("Task Description")
-    if st.button("Save Task"):
-        st.session_state.tasks.append({
-            "profile": profile, "view": view, "task": new_task,
-            "done": False, "remarks": "", "date": get_smart_date(view)
-        })
+    if st.button("🧹 Clear Completed", use_container_width=True):
+        st.session_state.tasks = [t for t in st.session_state.tasks if not t['done']]
         save_data()
         st.rerun()
-
-# --- TASK DISPLAY & DELETE LOGIC ---
-# We use enumerate on the full session state to ensure we delete the correct global index
-for i, task in enumerate(st.session_state.tasks):
-    # Only show tasks for the current profile and view
-    if task['profile'] == profile and task['view'] == view:
-        col_status, col_text, col_rem, col_del = st.columns([0.1, 0.5, 0.3, 0.1])
         
-        # 1. Status/Finish Column
-        if not task['done']:
-            if col_status.button("✓", key=f"done_{i}"):
-                # Remarks logic
-                rem = st.text_input("Remarks", key=f"input_rem_{i}")
-                task['done'] = True
-                task['remarks'] = rem
-                save_data()
-                st.rerun()
-            col_text.write(task['task'])
-        else:
-            col_status.write("✅")
-            col_text.write(f"~~{task['task']}~~")
-            col_rem.caption(f"Remarks: {task['remarks']}")
+    if st.button("📧 Send Report", use_container_width=True):
+        st.toast("Report Sent!")
 
-        # 2. DELETE BUTTON
-        if col_del.button("🗑️", key=f"del_{i}", help="Delete this task"):
-            st.session_state.tasks.pop(i)
+# --- MAIN UI ---
+# Compact Header for Mobile
+col_header, col_date = st.columns([1, 1])
+col_header.subheader(f"{profile}: {view}")
+col_date.metric("Target", get_smart_date(view))
+
+# Add New Task (Full Width for thumb-tapping)
+with st.container(border=True):
+    new_task = st.text_input("New Task", placeholder="What's the goal?", label_visibility="collapsed")
+    if st.button("➕ Add Task", use_container_width=True):
+        if new_task:
+            st.session_state.tasks.append({
+                "profile": profile, "view": view, "task": new_task,
+                "done": False, "remarks": "", "date": get_smart_date(view)
+            })
             save_data()
             st.rerun()
 
-# --- EMAIL REPORTING ---
-st.sidebar.markdown("---")
-if st.sidebar.button("📧 Email Daily Report"):
-    st.sidebar.success("Report Compiled & Sent!")
+st.divider()
+
+# --- TASK LIST (Optimized for tap targets) ---
+current_tasks = [t for t in st.session_state.tasks if t['profile'] == profile and t['view'] == view]
+
+if not current_tasks:
+    st.caption("No tasks for this period. Add one above! 🚀")
+
+for i, task in enumerate(st.session_state.tasks):
+    if task['profile'] == profile and task['view'] == view:
+        with st.container(border=True):
+            # Row 1: The Task Name
+            if task['done']:
+                st.markdown(f"✅ ~~{task['task']}~~")
+                if task['remarks']:
+                    st.caption(f"💬 {task['remarks']}")
+            else:
+                st.markdown(f"**{task['task']}**")
+            
+            # Row 2: Action Buttons (Large tap targets)
+            c1, c2 = st.columns(2)
+            
+            if not task['done']:
+                with c1:
+                    if st.button("Finish", key=f"f_{i}", use_container_width=True):
+                        # Simple remark logic within the flow
+                        st.session_state[f"show_rem_{i}"] = True
+                
+                if st.session_state.get(f"show_rem_{i}", False):
+                    rem = st.text_input("Remarks", key=f"input_{i}")
+                    if st.button("Confirm Done", key=f"conf_{i}", use_container_width=True):
+                        task['done'] = True
+                        task['remarks'] = rem
+                        save_data()
+                        st.rerun()
+            
+            with c2:
+                if st.button("🗑️ Delete", key=f"d_{i}", use_container_width=True):
+                    st.session_state.tasks.pop(i)
+                    save_data()
+                    st.rerun()
